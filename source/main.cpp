@@ -356,7 +356,7 @@ int main(int argc, char **argv)
         printf("Failed to get save list 0x%x\n", rc);
     }
 
-    printf("Y'allAreNUTs v0.1.1\n"
+    printf("Y'allAreNUTs v0.2 by 3096 and geek85\n"
         "Press UP and DOWN to select a save\n"
         "Press LEFT and RIGHT to skip 5 saves\n"
         "Press A to dump save to 'save/'\n"
