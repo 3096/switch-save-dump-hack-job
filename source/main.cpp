@@ -75,24 +75,27 @@ int isDirectory(const char *path) {
    return S_ISDIR(statbuf.st_mode);
 }
 
-int cpFile(const char * filenameI, const char * filenameO) {
+int cpFile(const char * filenameI, const char * filenameO, bool isDelete) {
     remove( filenameO );
-    
-    std::ifstream src(filenameI, std::ios::binary);
-    std::ofstream dst(filenameO, std::ios::binary);
-
-    dst << src.rdbuf();
-
+    if(!isDelete) {
+        std::ifstream src(filenameI, std::ios::binary);
+        std::ofstream dst(filenameO, std::ios::binary);
+        dst << src.rdbuf();
+    }
     return 0;
 }
 
 
-int copyAllSave(const char * dev, const char * path, bool isInject, 
+int copyAllSave(const char * dev, const char * path, char action, 
     const char * exportDir) {
     DIR* dir;
     struct dirent* ent;
     char dirPath[0x100];
-    if(isInject) {
+    bool isDelete=False;
+    if(action=="Delete"){
+        isDelete=True;
+    }
+    if(action=="Inject") {
         strcpy(dirPath, INJECT_DIR);
         strcat(dirPath, path);
     } else {                    
@@ -119,7 +122,7 @@ int copyAllSave(const char * dev, const char * path, bool isInject,
 
             char filenameI[0x100];
             char filenameO[0x100];
-            if(isInject) {
+            if(action!=NULL) {
                 strcpy(filenameI, INJECT_DIR);
                 strcat(filenameI, filename);
 
@@ -139,13 +142,13 @@ int copyAllSave(const char * dev, const char * path, bool isInject,
 
             if(isDirectory(filenameI)) {
                 mkdir(filenameO, 0700);
-                int res = copyAllSave(dev, filename, isInject, exportDir);
+                int res = copyAllSave(dev, filename, action, exportDir);
                 if(res != 0)
                     return res;
             } else {
-                printf("Copying %s... ", filenameI);
-                cpFile(filenameI, filenameO);
-                if(isInject) {
+                printf("Processing %s... ", filenameI);
+                cpFile(filenameI, filenameO, isDelete);
+                if(action!=NULL) {
                     if (R_SUCCEEDED(fsdevCommitDevice(SAVE_DEV))) { // Thx yellows8
                         printf("committed.\n");
                     } else {
@@ -164,11 +167,11 @@ int copyAllSave(const char * dev, const char * path, bool isInject,
 }
 
 int dumpAll() {
-    return copyAllSave("save:/", ".", false, NULL);
+    return copyAllSave("save:/", ".", NULL, NULL);
 }
 
 int dumpAllTo(char * dir) {
-    return copyAllSave("save:/", ".", false, dir);
+    return copyAllSave("save:/", ".", NULL, dir);
 }
 
 void dumpToTitleUserDir(FsSaveDataInfo info) {
@@ -182,7 +185,11 @@ void dumpToTitleUserDir(FsSaveDataInfo info) {
 }
 
 int inject() {
-    return copyAllSave("save:/", ".", true, NULL);
+    return copyAllSave("save:/", ".", "Inject", NULL);
+}
+
+int delete() {
+    return copyAllSave("save:/", ".", "Delete", NULL);
 }
 
 Result getTitleName(u64 titleID, char * name) {
@@ -419,7 +426,14 @@ int main(int argc, char **argv)
                 printf("Dump over.\n\n");
             }
         }
-
+        if (kDown & KEY_KEY_ZL) {
+            if (userConfirm("Erase saves? Sure?")) {
+                mountSaveBySaveDataInfo(info, SAVE_DEV);
+                if( delete() == 0 ) {
+                    printf("Delete over.\n\n");                    
+                }
+                fsdevUnmountDevice(SAVE_DEV);
+        }
         if (kDown & KEY_X) {
             if (userConfirm("Inject data from 'inject/'?")) {
                 mountSaveBySaveDataInfo(info, SAVE_DEV);
