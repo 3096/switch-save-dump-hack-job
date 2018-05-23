@@ -91,9 +91,9 @@ int copyAllSave(const char * dev, const char * path, char action,
     DIR* dir;
     struct dirent* ent;
     char dirPath[0x100];
-    bool isDelete=False;
+    bool isDelete=false;
     if(action=="Delete"){
-        isDelete=True;
+        isDelete=true;
     }
     if(action=="Inject") {
         strcpy(dirPath, INJECT_DIR);
@@ -188,7 +188,7 @@ int inject() {
     return copyAllSave("save:/", ".", "Inject", NULL);
 }
 
-int delete() {
+int del() {
     return copyAllSave("save:/", ".", "Delete", NULL);
 }
 
@@ -426,10 +426,10 @@ int main(int argc, char **argv)
                 printf("Dump over.\n\n");
             }
         }
-        if (kDown & KEY_KEY_ZL) {
+        if (kDown & KEY_ZL) {
             if (userConfirm("Erase saves? Sure?")) {
                 mountSaveBySaveDataInfo(info, SAVE_DEV);
-                if( delete() == 0 ) {
+                if( del() == 0 ) {
                     printf("Delete over.\n\n");                    
                 }
                 fsdevUnmountDevice(SAVE_DEV);
