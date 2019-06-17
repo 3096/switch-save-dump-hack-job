@@ -12,6 +12,8 @@
 const char * EXPORT_DIR = "save/";
 const char * INJECT_DIR = "inject/";
 const char * SAVE_DEV = "save";
+const char * DELETE = "Delete";
+const char * INJECT = "Inject";
 
 Result getSaveList(std::vector<FsSaveDataInfo> & saveInfoList) {
     Result rc=0;
@@ -31,7 +33,7 @@ Result getSaveList(std::vector<FsSaveDataInfo> & saveInfoList) {
     if (total_entries==0)
         return MAKERESULT(Module_Libnx, LibnxError_NotFound);
 
-    for(; R_SUCCEEDED(rc) && total_entries > 0; 
+    for(; R_SUCCEEDED(rc) && total_entries > 0;
         rc = fsSaveDataIteratorRead(&iterator, &info, 1, &total_entries)) {
         if (info.SaveDataType == FsSaveDataType_SaveData) {
             saveInfoList.push_back(info);
@@ -49,7 +51,7 @@ Result mountSaveBySaveDataInfo(const FsSaveDataInfo & info, const char * dev) {
 
     u64 titleID = info.titleID;
     u128 userID = info.userID;
-    
+
     FsFileSystem tmpfs;
 
     printf("\n\nUsing titleID=0x%016lx userID: 0x%lx 0x%lx\n", titleID, (u64)(userID>>64), (u64)userID);
@@ -77,27 +79,29 @@ int isDirectory(const char *path) {
    return S_ISDIR(statbuf.st_mode);
 }
 
-int cpFile(const char * filenameI, const char * filenameO) {
+int cpFile(const char * filenameI, const char * filenameO, bool isDelete) {
     remove( filenameO );
-    
-    std::ifstream src(filenameI, std::ios::binary);
-    std::ofstream dst(filenameO, std::ios::binary);
-
-    dst << src.rdbuf();
-
+    if(!isDelete) {
+        std::ifstream src(filenameI, std::ios::binary);
+        std::ofstream dst(filenameO, std::ios::binary);
+        dst << src.rdbuf();
+    }
     return 0;
 }
 
 
-int copyAllSave(const char * dev, const char * path, bool isInject, 
-    const char * exportDir) {
+int copyAllSave(const char * dev, const char * path, const char * action, const char * exportDir) {
     DIR* dir;
     struct dirent* ent;
     char dirPath[0x100];
-    if(isInject) {
+    bool isDelete = false;
+    if(action == DELETE){
+        isDelete=true;
+    }
+    if(action == INJECT) {
         strcpy(dirPath, INJECT_DIR);
         strcat(dirPath, path);
-    } else {                    
+    } else {
         strcpy(dirPath, dev);
         strcat(dirPath, path);
     }
@@ -121,7 +125,7 @@ int copyAllSave(const char * dev, const char * path, bool isInject,
 
             char filenameI[0x100];
             char filenameO[0x100];
-            if(isInject) {
+            if(action!=NULL) {
                 strcpy(filenameI, INJECT_DIR);
                 strcat(filenameI, filename);
 
@@ -141,13 +145,13 @@ int copyAllSave(const char * dev, const char * path, bool isInject,
 
             if(isDirectory(filenameI)) {
                 mkdir(filenameO, 0700);
-                int res = copyAllSave(dev, filename, isInject, exportDir);
+                int res = copyAllSave(dev, filename, action, exportDir);
                 if(res != 0)
                     return res;
             } else {
-                printf("Copying %s... ", filenameI);
-                cpFile(filenameI, filenameO);
-                if(isInject) {
+                printf("Processing %s... ", filenameI);
+                cpFile(filenameI, filenameO, isDelete);
+                if(action!=NULL) {
                     if (R_SUCCEEDED(fsdevCommitDevice(SAVE_DEV))) { // Thx yellows8
                         printf("committed.\n");
                     } else {
@@ -166,11 +170,11 @@ int copyAllSave(const char * dev, const char * path, bool isInject,
 }
 
 int dumpAll() {
-    return copyAllSave("save:/", ".", false, NULL);
+    return copyAllSave("save:/", ".", NULL, NULL);
 }
 
 int dumpAllTo(char * dir) {
-    return copyAllSave("save:/", ".", false, dir);
+    return copyAllSave("save:/", ".", NULL, dir);
 }
 
 void dumpToTitleUserDir(FsSaveDataInfo info) {
@@ -184,7 +188,11 @@ void dumpToTitleUserDir(FsSaveDataInfo info) {
 }
 
 int inject() {
-    return copyAllSave("save:/", ".", true, NULL);
+    return copyAllSave("save:/", ".", INJECT, NULL);
+}
+
+int del() {
+    return copyAllSave("save:/", ".", DELETE, NULL);
 }
 
 Result getTitleName(u64 titleID, char* name, size_t targetBufferLen) {
@@ -261,7 +269,6 @@ Result getUserNameById(u128 userID, char* username, size_t targetBufferLen) {
         if (R_FAILED(rc)) {
             printf("accountGetProfile() failed: 0x%x\n", rc);
         }
-        
 
         if (R_SUCCEEDED(rc)) {
             rc = accountProfileGet(&profile, &userdata, &profilebase);//userdata is otional, see libnx acc.h.
@@ -292,8 +299,7 @@ int selectSaveFromList(int & selection, int change,
     if (selection < 0) {
         selection = abs(selection) % saveInfoList.size();
         selection = saveInfoList.size() - selection;
-    } else if (selection > 0 
-        && static_cast<unsigned int>(selection) >= saveInfoList.size()) {
+    } else if (selection > 0 && static_cast<unsigned int>(selection) >= saveInfoList.size()) {
         selection %= saveInfoList.size();
     }
 
@@ -317,7 +323,7 @@ int selectSaveFromList(int & selection, int change,
 bool userConfirm(const char * msg) {
     printf("\n%s\nPress A to confirm, any other button to cancel\n", msg);
 
-    u64 kDownPrevious = hidKeysDown(CONTROLLER_P1_AUTO); 
+    u64 kDownPrevious = hidKeysDown(CONTROLLER_P1_AUTO);
     while(appletMainLoop())
     {
         hidScanInput();
@@ -347,13 +353,13 @@ int main(int argc, char **argv)
     std::vector<FsSaveDataInfo> saveInfoList;
 
     mkdir(EXPORT_DIR, 0700);
-    mkdir(INJECT_DIR, 0700);    
+    mkdir(INJECT_DIR, 0700);
 
     if (R_FAILED(getSaveList(saveInfoList))) {
         printf("Failed to get save list 0x%x\n", rc);
     }
 
-    printf("Y'allAreNUTs v0.1.1\n"
+    printf("Y'allAreNUTs v0.2 by 3096 and geek85\n"
         "Press UP and DOWN to select a save\n"
         "Press LEFT and RIGHT to skip 5 saves\n"
         "Press A to dump save to 'save/'\n"
@@ -396,7 +402,7 @@ int main(int argc, char **argv)
             printName = !printName;
             selectSaveFromList(selection, 0, saveInfoList, info, printName);
         }
-        
+
         if (kDown & KEY_A) {
             mountSaveBySaveDataInfo(info, SAVE_DEV);
             dumpAll();
@@ -423,12 +429,21 @@ int main(int argc, char **argv)
             }
         }
 
+        if (kDown & KEY_ZL) {
+            if (userConfirm("Erase saves? Sure?")) {
+                mountSaveBySaveDataInfo(info, SAVE_DEV);
+                if( del() == 0 ) {
+                    printf("Delete over.\n\n");
+                }
+                fsdevUnmountDevice(SAVE_DEV);
+            }
+        }
+
         if (kDown & KEY_X) {
             if (userConfirm("Inject data from 'inject/'?")) {
                 mountSaveBySaveDataInfo(info, SAVE_DEV);
                 if( inject() == 0 ) {
                     printf("Inject over.\n\n");
-                    
                 }
                 fsdevUnmountDevice(SAVE_DEV);
             }
